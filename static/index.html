@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>损友账本 · Snarky Ledger</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #12121a;
+    --panel: #1c1c28;
+    --panel-2: #232334;
+    --border: #2e2e42;
+    --text: #e8e8f0;
+    --muted: #8b8ba5;
+    --accent: #ff8a3d;
+    --accent-2: #ff6b6b;
+    --gentle: #3fb27f;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+    min-height: 100vh;
+  }
+  header {
+    display: flex; align-items: center; gap: 14px;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, #1a1a26, #14141c);
+    position: sticky; top: 0; z-index: 10;
+  }
+  header h1 { font-size: 20px; font-weight: 700; letter-spacing: 1px; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  .mode-chip {
+    margin-left: auto; padding: 5px 14px; border-radius: 999px;
+    font-size: 13px; font-weight: 600;
+    background: rgba(255, 138, 61, .15); color: var(--accent);
+    border: 1px solid rgba(255, 138, 61, .4);
+  }
+  .mode-chip.gentle { background: rgba(63, 178, 127, .15); color: var(--gentle); border-color: rgba(63, 178, 127, .4); }
+  .ghost-btn {
+    background: transparent; color: var(--muted); border: 1px solid var(--border);
+    padding: 6px 12px; border-radius: 8px; cursor: pointer; font-size: 13px;
+  }
+  .ghost-btn:hover { color: var(--accent-2); border-color: var(--accent-2); }
+
+  main {
+    display: grid; grid-template-columns: 400px 1fr; gap: 18px;
+    padding: 18px 24px 40px; max-width: 1280px; margin: 0 auto;
+  }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px;
+  }
+  .card-title { font-size: 14px; font-weight: 600; color: var(--muted); margin-bottom: 12px; letter-spacing: .5px; }
+
+  /* 聊天 */
+  .chat-panel { display: flex; flex-direction: column; height: calc(100vh - 120px); min-height: 420px; }
+  .chat-log { flex: 1; overflow-y: auto; padding: 4px 2px; display: flex; flex-direction: column; gap: 12px; }
+  .msg { max-width: 88%; padding: 10px 14px; border-radius: 12px; line-height: 1.6; font-size: 14px; white-space: pre-wrap; word-break: break-word; }
+  .msg.user { align-self: flex-end; background: var(--accent); color: #1a1208; border-bottom-right-radius: 4px; }
+  .msg.bot { align-self: flex-start; background: var(--panel-2); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+  .chat-input { display: flex; gap: 8px; margin-top: 12px; }
+  .chat-input input {
+    flex: 1; background: var(--panel-2); border: 1px solid var(--border);
+    color: var(--text); border-radius: 10px; padding: 12px 14px; font-size: 14px; outline: none;
+  }
+  .chat-input input:focus { border-color: var(--accent); }
+  .chat-input button {
+    background: var(--accent); color: #1a1208; border: none; border-radius: 10px;
+    padding: 0 20px; font-weight: 700; cursor: pointer; font-size: 14px;
+  }
+  .chat-input button:hover { filter: brightness(1.08); }
+
+  /* 侧栏 */
+  .side { display: flex; flex-direction: column; gap: 18px; }
+  .stat-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .stat-cards .card { text-align: center; padding: 14px; }
+  .stat-cards .label { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+  .stat-cards .value { font-size: 24px; font-weight: 700; }
+  .charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 640px) { .charts-row { grid-template-columns: 1fr; } }
+  .chart-card { position: relative; }
+  .chart-card canvas { max-height: 240px; }
+
+  /* 预算 */
+  .budget-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .budget-row .name { width: 44px; font-size: 13px; }
+  .budget-row .bar { flex: 1; height: 10px; background: var(--panel-2); border-radius: 999px; overflow: hidden; }
+  .budget-row .bar > span { display: block; height: 100%; background: var(--accent); border-radius: 999px; transition: width .3s; }
+  .budget-row .bar > span.over { background: var(--accent-2); }
+  .budget-row .nums { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .budget-form { display: flex; gap: 8px; margin-top: 14px; }
+  .budget-form select, .budget-form input {
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 8px; padding: 8px 10px; font-size: 13px; outline: none;
+  }
+  .budget-form input { width: 90px; }
+  .budget-form button {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 0 14px; cursor: pointer; font-size: 13px;
+  }
+  .budget-form button:hover { border-color: var(--accent); color: var(--accent); }
+  .empty-hint { color: var(--muted); font-size: 13px; }
+
+  /* 表格 */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td.amt { text-align: right; font-variant-numeric: tabular-nums; }
+  .cat-tag { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 12px; background: var(--panel-2); }
+  .table-card { max-height: 280px; overflow: hidden; }
+  .table-scroll { max-height: 220px; overflow-y: auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>损友账本</h1>
+  <span class="sub">Snarky Ledger · 会毒舌吐槽的记账 Agent</span>
+  <div class="mode-chip" id="mode-chip">毒舌模式</div>
+  <button class="ghost-btn" id="reset-btn">清空账本</button>
+</header>
+
+<main>
+  <section class="card chat-panel">
+    <div class="chat-log" id="chat-log"></div>
+    <form class="chat-input" id="chat-form">
+      <input id="chat-text" placeholder="跟账哥说：今天花 50 吃火锅…" autocomplete="off">
+      <button type="submit">发送</button>
+    </form>
+  </section>
+
+  <section class="side">
+    <div class="stat-cards">
+      <div class="card"><div class="label">本月支出</div><div class="value" id="stat-total">—</div></div>
+      <div class="card"><div class="label">环比</div><div class="value" id="stat-mom">—</div></div>
+      <div class="card"><div class="label">笔数</div><div class="value" id="stat-count">—</div></div>
+    </div>
+
+    <div class="charts-row">
+      <div class="card chart-card">
+        <div class="card-title">本月每日支出</div>
+        <canvas id="bar-chart"></canvas>
+      </div>
+      <div class="card chart-card">
+        <div class="card-title">本月分类占比</div>
+        <canvas id="pie-chart"></canvas>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">预算</div>
+      <div id="budget-list"><div class="empty-hint">还没有预算，先设一个试试。</div></div>
+      <form class="budget-form" id="budget-form">
+        <select id="budget-cat"></select>
+        <input id="budget-amt" type="number" min="1" step="0.01" placeholder="金额">
+        <button type="submit">设预算</button>
+      </form>
+    </div>
+
+    <div class="card table-card">
+      <div class="card-title">最近账目</div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>日期</th><th>分类</th><th>备注</th><th class="amt">金额</th></tr></thead>
+          <tbody id="expense-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+const CATEGORIES = ["餐饮", "交通", "购物", "学习", "娱乐", "居住", "医疗", "其他"];
+const CAT_COLORS = {
+  "餐饮": "#ff7a59", "交通": "#4d96ff", "购物": "#ff4d8d", "学习": "#3fb27f",
+  "娱乐": "#9b5de5", "居住": "#f5a623", "医疗": "#00b4d8", "其他": "#8d99ae",
+};
+
+let barChart, pieChart;
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+function appendMsg(role, text) {
+  const log = document.getElementById("chat-log");
+  const el = document.createElement("div");
+  el.className = "msg " + (role === "user" ? "user" : "bot");
+  el.textContent = text;
+  log.appendChild(el);
+  log.scrollTop = log.scrollHeight;
+}
+
+function renderMode(mode) {
+  const chip = document.getElementById("mode-chip");
+  if (mode === "gentle") { chip.textContent = "温柔模式"; chip.classList.add("gentle"); }
+  else { chip.textContent = "毒舌模式"; chip.classList.remove("gentle"); }
+}
+
+function renderStats(stats) {
+  document.getElementById("stat-total").textContent = "¥" + (stats.total ?? 0).toFixed(2);
+  const mom = stats.mom_change_pct;
+  const momEl = document.getElementById("stat-mom");
+  if (mom == null) { momEl.textContent = "—"; momEl.style.color = ""; }
+  else {
+    momEl.textContent = (mom > 0 ? "+" : "") + mom + "%";
+    momEl.style.color = mom <= 0 ? "var(--gentle)" : "var(--accent-2)";
+  }
+  document.getElementById("stat-count").textContent = stats.count ?? 0;
+}
+
+function renderBar(daily) {
+  const labels = daily.map(d => String(parseInt(d.date.slice(-2), 10)));
+  const data = daily.map(d => d.total);
+  if (!barChart) {
+    barChart = new Chart(document.getElementById("bar-chart"), {
+      type: "bar",
+      data: { labels, datasets: [{ data, backgroundColor: "rgba(255,138,61,.7)", borderRadius: 4 }] },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { display: false }, ticks: { color: "#8b8ba5", maxTicksLimit: 10 } },
+          y: { grid: { color: "#2e2e42" }, ticks: { color: "#8b8ba5" } },
+        },
+      },
+    });
+  } else {
+    barChart.data.labels = labels;
+    barChart.data.datasets[0].data = data;
+    barChart.update();
+  }
+}
+
+function renderPie(byCategory) {
+  const entries = Object.entries(byCategory || {}).filter(([, v]) => v > 0);
+  const labels = entries.map(([k]) => k);
+  const data = entries.map(([, v]) => v);
+  const colors = labels.map(k => CAT_COLORS[k] || "#8d99ae");
+  if (!pieChart) {
+    pieChart = new Chart(document.getElementById("pie-chart"), {
+      type: "doughnut",
+      data: { labels, datasets: [{ data, backgroundColor: colors, borderColor: "#1c1c28", borderWidth: 2 }] },
+      options: {
+        plugins: { legend: { position: "right", labels: { color: "#e8e8f0", boxWidth: 12, padding: 8 } } },
+        cutout: "60%",
+      },
+    });
+  } else {
+    pieChart.data.labels = labels;
+    pieChart.data.datasets[0].data = data;
+    pieChart.data.datasets[0].backgroundColor = colors;
+    pieChart.update();
+  }
+}
+
+function renderBudgets(budgets) {
+  const list = document.getElementById("budget-list");
+  if (!budgets || !budgets.length) {
+    list.innerHTML = '<div class="empty-hint">还没有预算，先设一个试试。</div>';
+    return;
+  }
+  list.innerHTML = "";
+  budgets.forEach(b => {
+    const pct = Math.min(b.pct, 100);
+    const over = b.pct > 100;
+    const row = document.createElement("div");
+    row.className = "budget-row";
+    row.innerHTML =
+      '<span class="name">' + esc(b.category) + '</span>' +
+      '<div class="bar"><span class="' + (over ? "over" : "") + '" style="width:' + pct + '%"></span></div>' +
+      '<span class="nums">' + b.spent.toFixed(0) + ' / ' + b.budget.toFixed(0) + '（' + b.pct + '%）</span>';
+    list.appendChild(row);
+  });
+}
+
+function renderExpenses(items) {
+  const body = document.getElementById("expense-body");
+  body.innerHTML = "";
+  if (!items || !items.length) {
+    body.innerHTML = '<tr><td colspan="4" class="empty-hint">还没有账目。</td></tr>';
+    return;
+  }
+  items.forEach(r => {
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      '<td>' + esc(r.date) + '</td>' +
+      '<td><span class="cat-tag" style="color:' + (CAT_COLORS[r.category] || "#8d99ae") + '">' + esc(r.category) + '</span></td>' +
+      '<td>' + esc(r.note) + '</td>' +
+      '<td class="amt">¥' + r.amount.toFixed(2) + '</td>';
+    body.appendChild(tr);
+  });
+}
+
+function render(state) {
+  renderMode(state.mode);
+  renderStats(state.stats);
+  renderBar(state.daily);
+  renderPie(state.stats.by_category);
+  renderBudgets(state.budgets.budgets);
+  renderExpenses(state.expenses);
+}
+
+async function loadState() {
+  const res = await fetch("/api/state", { method: "POST" });
+  render(await res.json());
+}
+
+async function sendMessage(text) {
+  appendMsg("user", text);
+  document.getElementById("chat-text").value = "";
+  try {
+    const res = await fetch("/api/act", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      appendMsg("bot", "（出错了：" + (data.error || res.status) + "）");
+    } else {
+      appendMsg("bot", data.reply);
+      render(data);
+    }
+  } catch (e) {
+    appendMsg("bot", "（请求失败：" + e.message + "）");
+  }
+}
+
+function initCatSelect() {
+  const sel = document.getElementById("budget-cat");
+  CATEGORIES.forEach(c => {
+    const o = document.createElement("option");
+    o.value = c; o.textContent = c;
+    sel.appendChild(o);
+  });
+}
+
+document.getElementById("chat-form").addEventListener("submit", e => {
+  e.preventDefault();
+  const t = document.getElementById("chat-text").value.trim();
+  if (t) sendMessage(t);
+});
+
+document.getElementById("budget-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const category = document.getElementById("budget-cat").value;
+  const amount = parseFloat(document.getElementById("budget-amt").value);
+  if (!amount || amount <= 0) return;
+  const res = await fetch("/api/budget", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ category, amount }),
+  });
+  if (res.ok) {
+    document.getElementById("budget-amt").value = "";
+    render(await res.json());
+  }
+});
+
+document.getElementById("reset-btn").addEventListener("click", async () => {
+  if (!confirm("确定清空整个账本？")) return;
+  await fetch("/api/reset", { method: "POST" });
+  document.getElementById("chat-log").innerHTML = "";
+  appendMsg("bot", "账本清空了。希望这次你是认真的。");
+  loadState();
+});
+
+initCatSelect();
+appendMsg("bot", "我是账哥，你的毒舌记账损友。报一笔账试试？");
+loadState();
+</script>
+</body>
+</html>

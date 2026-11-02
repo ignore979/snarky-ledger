@@ -1,0 +1,27 @@
+# 密钥与本地配置
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# 数据库
+*.db
+*.sqlite
+*.sqlite3
+
+# 虚拟环境
+venv/
+.venv/
+env/
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# 演示/临时
+*.gif
+demo/
