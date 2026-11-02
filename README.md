@@ -17,7 +17,7 @@
 - **工具** = 记账 / 查账 / 统计 / 预算 / 报告等 8 个函数 + JSON Schema（`tools.py`）
 - **循环** = LLM 决定要不要调工具 → 执行 → 把结果喂回 → 直到给出最终回复（`agent.py` 的 ReAct 循环）
 
-答辩一句话：**同一个循环，把 `move`/`attack` 换成 `add_expense`/`query_expenses`，游戏就变成了记账管家。** 这是「工具可替换性」的活证明。
+**同一个循环，把 `move`/`attack` 换成 `add_expense`/`query_expenses`，游戏就变成了记账管家。** 这是「工具可替换性」的活证明。
 
 ## 快速开始
 
