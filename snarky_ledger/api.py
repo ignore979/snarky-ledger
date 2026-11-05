@@ -5,7 +5,7 @@ import os
 import sqlite3
 import threading
 
-from flask import Blueprint, Flask, jsonify, request
+from flask import Blueprint, Flask, jsonify, request, send_from_directory
 
 from . import db as dbm
 from .clock import Clock, SystemClock
@@ -70,6 +70,7 @@ def build_app(settings: Settings | None = None, clock: Clock | None = None):
     repo, ledger, budget, analysis, tools = build_services(settings, clock)
 
     app = Flask(__name__)
+    app.static_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "static")
     app.config["LEDGER_SETTINGS"] = settings
     app.config["LEDGER_CLOCK"] = clock
     app.config["LEDGER_SERVICES"] = (repo, ledger, budget, analysis, tools)
@@ -155,6 +156,10 @@ def build_app(settings: Settings | None = None, clock: Clock | None = None):
         with repo.transaction() as conn:
             rev = repo.revision(conn)
         return jsonify({"status": "ok", "ledger_revision": rev})
+
+    @app.get("/")
+    def index():
+        return send_from_directory(app.static_folder, "index.html")
 
     # --- V2 ---
     v2 = Blueprint("v2", __name__, url_prefix="/api/v2")
