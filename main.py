@@ -1,20 +1,21 @@
-"""main.py — 终端 REPL。
+"""main.py — 入口。
 
 用法：
-    python main.py               # 终端对话
-    python main.py --web         # 启动网页版
+    python main.py                # 终端对话（自然语言记账）
+    python main.py --web          # 网页版（默认 http://127.0.0.1:5000）
     python main.py --web --port 8000
 """
 from __future__ import annotations
 
-import os
 import sys
+
+from dotenv import load_dotenv
 
 
 def _fix_encoding():
-    for stream in (sys.stdout, sys.stderr):
-        if hasattr(stream, "reconfigure"):
-            stream.reconfigure(encoding="utf-8", errors="replace")
+    for s in (sys.stdout, sys.stderr):
+        if hasattr(s, "reconfigure"):
+            s.reconfigure(encoding="utf-8", errors="replace")
 
 
 BANNER = """
@@ -25,23 +26,29 @@ BANNER = """
 """
 
 
+def _services():
+    from snarky_ledger import Settings, SystemClock
+    from snarky_ledger.api import build_services, ensure_db
+
+    settings = Settings.from_env()
+    clock = SystemClock()
+    ensure_db(settings.db_path, clock)
+    repo, ledger, budget, analysis, tools = build_services(settings, clock)
+    return settings, clock, tools
+
+
 def run_repl():
-    from dotenv import load_dotenv
+    from snarky_ledger.agent import Agent
 
-    load_dotenv()
-    import ledger
-
-    ledger.init_db()
-    from agent import Agent
-
-    if not os.environ.get("DEEPSEEK_API_KEY"):
-        print("缺少 DEEPSEEK_API_KEY：请先 `cp .env.example .env` 并填入你的 key，或写入环境变量。")
+    settings, clock, tools = _services()
+    if not settings.deepseek_api_key:
+        print("缺少 DEEPSEEK_API_KEY：请先 `cp .env.example .env` 并填入 key。")
         return
 
-    agent = Agent()
+    agent = Agent(settings=settings, clock=clock, tools=tools)
     print(BANNER)
     print("直接说人话记账 / 查账 / 统计 / 设预算。")
-    print("/mode gentle 切温柔  /mode savage 切毒舌  /reset 清空  /exit 退出")
+    print("/mode gentle 切温柔  /mode savage 切毒舌  /exit 退出")
     print("-" * 60)
 
     while True:
@@ -55,15 +62,10 @@ def run_repl():
         if text in ("/exit", "/quit", "退出", "quit", "exit"):
             print("账哥 > 走了？行，账本我帮你盯着。")
             break
-        if text == "/reset":
-            ledger.reset()
-            agent.reset()
-            print("账哥 > 账本清空了，希望这次你是认真的。")
-            continue
         if text.startswith("/mode"):
             m = "gentle" if "gentle" in text else "savage"
-            ledger.set_mode(m)
-            print(f"账哥 > 模式已切到 {'温柔' if m == 'gentle' else '毒舌'}。")
+            tools.set_mode(m)
+            print(f"账哥 > 已切到 {'温柔' if m == 'gentle' else '毒舌'}模式。")
             continue
         try:
             reply = agent.run(text)
@@ -73,20 +75,17 @@ def run_repl():
 
 
 def run_web(port=None):
-    from dotenv import load_dotenv
+    from snarky_ledger import Settings, create_app
 
-    load_dotenv()
-    import ledger
-
-    ledger.init_db()
-    from web import app
-
-    port = port or int(os.environ.get("PORT", 5000))
+    settings = Settings.from_env()
+    app = create_app(settings)
+    port = port or settings.port
     print(f"网页版启动：http://127.0.0.1:{port}")
     app.run(host="127.0.0.1", port=port, debug=False)
 
 
 def main():
+    load_dotenv()
     _fix_encoding()
     args = sys.argv[1:]
     if "--web" in args:

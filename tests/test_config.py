@@ -55,7 +55,10 @@ class ErrorsTest(unittest.TestCase):
 
 class CreateAppTest(unittest.TestCase):
     def test_health(self):
-        app = create_app(Settings(db_path="/tmp/nonexistent.db"))
+        import os
+        import tempfile
+        db_path = os.path.join(tempfile.mkdtemp(), "ledger.db")
+        app = create_app(Settings(db_path=db_path))
         c = app.test_client()
         r = c.get("/health/live")
         self.assertEqual(r.status_code, 200)
