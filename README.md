@@ -94,7 +94,6 @@ snarky-ledger/
 
 ```bash
 python -m unittest discover -s tests -t .   # 90 个用例：金额/日期/服务/迁移/工具/Agent/API/会话/记忆/CSV
-python test_offline.py                      # 旧入口兼容测试（4 用例）
 ```
 
 ## 迁移与运维
