@@ -110,10 +110,14 @@
 
   /* 侧栏 */
   .side { display: flex; flex-direction: column; gap: 18px; }
-  .stat-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-  .stat-cards .card { text-align: center; padding: 14px; }
+  .stat-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  @media (max-width: 640px) { .stat-cards { grid-template-columns: repeat(2, 1fr); } }
+  .stat-cards .card { text-align: center; padding: 16px 14px; transition: transform .15s ease, border-color .15s ease; }
+  .stat-cards .card:hover { transform: translateY(-2px); border-color: var(--accent); }
   .stat-cards .label { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
-  .stat-cards .value { font-size: 24px; font-weight: 700; }
+  .stat-cards .value { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .stat-cards .value.income { color: var(--gentle); }
+  .stat-cards .hint { color: var(--muted); font-size: 11px; margin-top: 2px; min-height: 14px; }
   .charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
   @media (max-width: 640px) { .charts-row { grid-template-columns: 1fr; } }
   .chart-card { position: relative; }
@@ -147,6 +151,10 @@
   .cat-tag { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 12px; background: var(--panel-2); }
   .table-card { max-height: 280px; overflow: hidden; }
   .table-scroll { max-height: 220px; overflow-y: auto; }
+  .kind-badge { display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: 4px; background: rgba(63,178,127,.18); color: var(--gentle); font-size: 10px; }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
 </style>
 </head>
 <body>
@@ -170,8 +178,9 @@
 
   <section class="side">
     <div class="stat-cards">
-      <div class="card"><div class="label">本月支出</div><div class="value" id="stat-total">—</div></div>
-      <div class="card"><div class="label">环比</div><div class="value" id="stat-mom">—</div></div>
+      <div class="card"><div class="label">本月支出</div><div class="value" id="stat-total">—</div><div class="hint" id="stat-mom"></div></div>
+      <div class="card"><div class="label">本月收入</div><div class="value income" id="stat-income">—</div></div>
+      <div class="card"><div class="label">结余</div><div class="value" id="stat-net">—</div></div>
       <div class="card"><div class="label">笔数</div><div class="value" id="stat-count">—</div></div>
     </div>
 
@@ -213,6 +222,7 @@ const CATEGORIES = ["餐饮", "交通", "购物", "学习", "娱乐", "居住", 
 const CAT_COLORS = {
   "餐饮": "#ff7a59", "交通": "#4d96ff", "购物": "#ff4d8d", "学习": "#3fb27f",
   "娱乐": "#9b5de5", "居住": "#f5a623", "医疗": "#00b4d8", "其他": "#8d99ae",
+  "工资": "#3fb27f", "兼职": "#2ec4b6", "理财": "#ffd166", "红包礼金": "#f472b6", "其他收入": "#94d2bd",
 };
 
 let barChart, pieChart;
@@ -279,11 +289,16 @@ function renderMode(mode) {
 
 function renderStats(stats) {
   document.getElementById("stat-total").textContent = "¥" + (stats.total ?? 0).toFixed(2);
+  document.getElementById("stat-income").textContent = "¥" + (stats.income_total ?? 0).toFixed(2);
+  const net = stats.net ?? 0;
+  const netEl = document.getElementById("stat-net");
+  netEl.textContent = (net >= 0 ? "+" : "") + "¥" + net.toFixed(2);
+  netEl.style.color = net >= 0 ? "var(--gentle)" : "var(--accent-2)";
   const mom = stats.mom_change_pct;
   const momEl = document.getElementById("stat-mom");
-  if (mom == null) { momEl.textContent = "—"; momEl.style.color = ""; }
+  if (mom == null) { momEl.textContent = ""; }
   else {
-    momEl.textContent = (mom > 0 ? "+" : "") + mom + "%";
+    momEl.textContent = "较上月 " + (mom > 0 ? "+" : "") + mom + "%";
     momEl.style.color = mom <= 0 ? "var(--gentle)" : "var(--accent-2)";
   }
   document.getElementById("stat-count").textContent = stats.count ?? 0;
@@ -361,12 +376,14 @@ function renderExpenses(items) {
     return;
   }
   items.forEach(r => {
+    const isIncome = r.kind === "income";
     const tr = document.createElement("tr");
+    if (isIncome) tr.className = "row-income";
     tr.innerHTML =
       '<td>' + esc(r.date) + '</td>' +
-      '<td><span class="cat-tag" style="color:' + (CAT_COLORS[r.category] || "#8d99ae") + '">' + esc(r.category) + '</span></td>' +
+      '<td><span class="cat-tag" style="color:' + (CAT_COLORS[r.category] || "#8d99ae") + '">' + esc(r.category) + (isIncome ? '<span class="kind-badge">收</span>' : '') + '</span></td>' +
       '<td>' + esc(r.note) + '</td>' +
-      '<td class="amt">¥' + r.amount.toFixed(2) + '</td>' +
+      '<td class="amt" style="color:' + (isIncome ? 'var(--gentle)' : 'inherit') + '">' + (isIncome ? '+' : '') + '¥' + r.amount.toFixed(2) + '</td>' +
       '<td class="amt"><button class="row-del" data-id="' + r.id + '" data-version="' + r.version + '" title="删除（软删，可恢复）">✕</button></td>';
     body.appendChild(tr);
   });

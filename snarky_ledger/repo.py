@@ -52,13 +52,13 @@ class LedgerRepository:
         )
 
     # --- 账目 ---
-    def insert_expense(self, conn, *, amount_minor, category_id, note, spent_on, source, command_id) -> dict:
+    def insert_expense(self, conn, *, amount_minor, category_id, note, spent_on, source, command_id, kind="expense") -> dict:
         now = self.now()
         cur = conn.execute(
             "INSERT INTO expenses(ledger_id, amount_minor, category_id, note, spent_on, source,"
-            " created_at, updated_at, deleted_at, version, command_id)"
-            " VALUES(?,?,?,?,?,?,?,?,NULL,1,?)",
-            (DEFAULT_LEDGER_ID, amount_minor, category_id, note, spent_on, source, now, now, command_id),
+            " created_at, updated_at, deleted_at, version, command_id, kind)"
+            " VALUES(?,?,?,?,?,?,?,?,NULL,1,?,?)",
+            (DEFAULT_LEDGER_ID, amount_minor, category_id, note, spent_on, source, now, now, command_id, kind),
         )
         return _row_dict(self.get_expense(conn, cur.lastrowid))
 
@@ -88,11 +88,14 @@ class LedgerRepository:
         return _row_dict(self.get_expense(conn, expense_id))
 
     def list_expenses(self, conn, *, start=None, end=None, category_id=None, include_deleted=False,
-                      limit=50, after_id=None) -> list:
+                      limit=50, after_id=None, kind=None) -> list:
         where = ["ledger_id=?"]
         params = [DEFAULT_LEDGER_ID]
         if not include_deleted:
             where.append("deleted_at IS NULL")
+        if kind:
+            where.append("kind = ?")
+            params.append(kind)
         if start:
             where.append("spent_on >= ?")
             params.append(start)
@@ -108,9 +111,12 @@ class LedgerRepository:
         sql = f"SELECT * FROM expenses WHERE {' AND '.join(where)} ORDER BY spent_on DESC, id DESC LIMIT ?"
         return [_row_dict(r) for r in conn.execute(sql, params + [limit])]
 
-    def aggregate(self, conn, *, start=None, end=None, category_id=None) -> dict:
+    def aggregate(self, conn, *, start=None, end=None, category_id=None, kind=None) -> dict:
         where = ["ledger_id=?", "deleted_at IS NULL"]
         params = [DEFAULT_LEDGER_ID]
+        if kind:
+            where.append("kind = ?")
+            params.append(kind)
         if start:
             where.append("spent_on >= ?")
             params.append(start)
@@ -128,9 +134,12 @@ class LedgerRepository:
         }
         return {"total_minor": total, "count": count, "by_category": by_cat}
 
-    def top_expenses(self, conn, *, start=None, end=None, n=3) -> list:
+    def top_expenses(self, conn, *, start=None, end=None, n=3, kind=None) -> list:
         where = ["ledger_id=?", "deleted_at IS NULL"]
         params = [DEFAULT_LEDGER_ID]
+        if kind:
+            where.append("kind = ?")
+            params.append(kind)
         if start:
             where.append("spent_on >= ?")
             params.append(start)
@@ -143,18 +152,25 @@ class LedgerRepository:
         )
         return [_row_dict(r) for r in conn.execute(sql, params + [n])]
 
-    def daily_totals(self, conn, month_start: str, month_end: str) -> list:
+    def daily_totals(self, conn, month_start: str, month_end: str, kind=None) -> list:
+        where = "ledger_id=? AND deleted_at IS NULL AND spent_on>=? AND spent_on<?"
+        params = [DEFAULT_LEDGER_ID, month_start, month_end]
+        if kind:
+            where += " AND kind = ?"
+            params.append(kind)
         rows = conn.execute(
-            "SELECT spent_on, SUM(amount_minor) AS t FROM expenses"
-            " WHERE ledger_id=? AND deleted_at IS NULL AND spent_on>=? AND spent_on<?"
+            "SELECT spent_on, SUM(amount_minor) AS t FROM expenses WHERE " + where +
             " GROUP BY spent_on ORDER BY spent_on",
-            (DEFAULT_LEDGER_ID, month_start, month_end),
+            params,
         ).fetchall()
         return {r["spent_on"]: r["t"] for r in rows}
 
-    def category_counts(self, conn, *, start=None, end=None) -> dict:
+    def category_counts(self, conn, *, start=None, end=None, kind=None) -> dict:
         where = ["ledger_id=?", "deleted_at IS NULL"]
         params = [DEFAULT_LEDGER_ID]
+        if kind:
+            where.append("kind = ?")
+            params.append(kind)
         if start:
             where.append("spent_on >= ?")
             params.append(start)

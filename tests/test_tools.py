@@ -44,6 +44,16 @@ class ToolTest(unittest.TestCase):
         r = run(self.tools, "add_expense", amount="50", category="奶茶")
         self.assertFalse(r["ok"])
 
+    def test_add_income_tool(self):
+        r = run(self.tools, "add_income", amount="5000", category="工资")
+        self.assertTrue(r["ok"])
+        self.assertEqual(r["income"]["amount_minor"], 500000)
+        self.assertEqual(r["month_income_total_minor"], 500000)
+
+    def test_add_income_with_expense_category_rejected(self):
+        r = run(self.tools, "add_income", amount="5000", category="餐饮")
+        self.assertFalse(r["ok"])
+
     def test_query(self):
         run(self.tools, "add_expense", amount="50", category="餐饮")
         run(self.tools, "add_expense", amount="30", category="交通")

@@ -17,6 +17,11 @@ CATEGORY_SEED = [
     ("housing", "居住", 5),
     ("medical", "医疗", 6),
     ("other", "其他", 7),
+    ("salary", "工资", 8),
+    ("side_job", "兼职", 9),
+    ("investment", "理财", 10),
+    ("gift", "红包礼金", 11),
+    ("other_income", "其他收入", 12),
 ]
 
 # 每个版本是一组语句；应用后记录 checksum，禁止修改已应用脚本
@@ -149,6 +154,13 @@ MIGRATIONS = [
             "CREATE INDEX idx_messages_session ON messages(session_id, seq)",
             "CREATE INDEX idx_pending_actions_status ON pending_actions(status, expires_at)",
             "CREATE INDEX idx_memories_ledger ON memories(ledger_id, deleted_at)",
+        ],
+    ),
+    (
+        "0003_income_kind",
+        [
+            "ALTER TABLE expenses ADD COLUMN kind TEXT NOT NULL DEFAULT 'expense'",
+            "CREATE INDEX idx_expenses_kind ON expenses(ledger_id, kind, spent_on)",
         ],
     ),
 ]

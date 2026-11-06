@@ -101,6 +101,23 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual(facts["mom_full"]["change_pct"], 50.0)
         self.assertEqual(facts["mom_full"]["previous_total_minor"], 10000)
 
+    def test_income(self):
+        self.ledger.add(amount=Money.parse("5000"), category=Category.parse("工资"),
+                        spent_on=BusinessDate("2026-11-01"), kind="income")
+        facts = self.analysis.monthly_facts(Month("2026-11"))
+        self.assertEqual(facts["income_total_minor"], 500000)
+        self.assertEqual(facts["total_minor"], 0)  # 支出仍为 0
+        self.assertEqual(facts["net_minor"], 500000)
+        self.assertEqual(facts["income_count"], 1)
+
+    def test_income_category_mismatch_rejected(self):
+        with self.assertRaises(InvalidArgument):
+            self.ledger.add(amount=Money.parse("5000"), category=Category.parse("工资"),
+                            spent_on=BusinessDate("2026-11-01"), kind="expense")
+        with self.assertRaises(InvalidArgument):
+            self.ledger.add(amount=Money.parse("50"), category=Category.parse("餐饮"),
+                            spent_on=BusinessDate("2026-11-01"), kind="income")
+
 
 if __name__ == "__main__":
     unittest.main()

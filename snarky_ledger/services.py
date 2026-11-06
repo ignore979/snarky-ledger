@@ -5,7 +5,7 @@ from datetime import date, timedelta
 
 from .clock import Clock
 from .db import DEFAULT_LEDGER_ID
-from .domain import BusinessDate, Category, Money, Month
+from .domain import BusinessDate, Category, Kind, Money, Month
 from .errors import InvalidArgument, NotFound, VersionConflict
 from .repo import LedgerRepository
 
@@ -30,12 +30,15 @@ class LedgerService:
         return note
 
     def add(self, *, amount: Money, category: Category, spent_on: BusinessDate,
-            note="", source="manual", command_id=None) -> dict:
+            note="", source="manual", command_id=None, kind="expense") -> dict:
+        kind = Kind.parse(kind)
+        if category.kind != kind:
+            raise InvalidArgument(f"分类「{category.name}」不属于「{kind}」类型")
         note = self._check(amount, spent_on, note)
         with self.repo.transaction() as conn:
             row = self.repo.insert_expense(
                 conn, amount_minor=amount.minor, category_id=category.id,
-                note=note, spent_on=spent_on.iso, source=source, command_id=command_id,
+                note=note, spent_on=spent_on.iso, source=source, command_id=command_id, kind=kind,
             )
             self.repo.add_event(conn, "expense", str(row["id"]), "created")
             rev = self.repo.bump_revision(conn)
@@ -92,6 +95,7 @@ class LedgerService:
             "category_id": row["category_id"],
             "note": row["note"],
             "spent_on": row["spent_on"],
+            "kind": row["kind"],
             "version": row["version"],
             "deleted_at": row["deleted_at"],
             "ledger_revision": rev,
@@ -157,15 +161,19 @@ class AnalysisService:
         start, end = period.half_open_range()
         prev = self._prev(period)
         with self.repo.transaction() as conn:
-            agg = self.repo.aggregate(conn, start=start, end=end)
-            top3 = self.repo.top_expenses(conn, start=start, end=end, n=3)
-            counts = self.repo.category_counts(conn, start=start, end=end)
-            daily_map = self.repo.daily_totals(conn, start, end)
-            prev_agg = self.repo.aggregate(conn, start=prev.first_day, end=prev.next_month.first_day)
+            agg = self.repo.aggregate(conn, start=start, end=end, kind="expense")
+            income_agg = self.repo.aggregate(conn, start=start, end=end, kind="income")
+            top3 = self.repo.top_expenses(conn, start=start, end=end, n=3, kind="expense")
+            counts = self.repo.category_counts(conn, start=start, end=end, kind="expense")
+            daily_map = self.repo.daily_totals(conn, start, end, kind="expense")
+            prev_agg = self.repo.aggregate(conn, start=prev.first_day, end=prev.next_month.first_day, kind="expense")
             rev = self.repo.revision(conn)
 
         by_category = {
             cid: {"amount_minor": m, "amount": fmt(m)} for cid, m in agg["by_category"].items()
+        }
+        income_by_category = {
+            cid: {"amount_minor": m, "amount": fmt(m)} for cid, m in income_agg["by_category"].items()
         }
         top_cat = max(counts, key=counts.get) if counts else None
         days = period.days_in_month
@@ -191,6 +199,12 @@ class AnalysisService:
             "total": fmt(agg["total_minor"]),
             "count": agg["count"],
             "by_category": by_category,
+            "income_total_minor": income_agg["total_minor"],
+            "income_total": fmt(income_agg["total_minor"]),
+            "income_count": income_agg["count"],
+            "income_by_category": income_by_category,
+            "net_minor": income_agg["total_minor"] - agg["total_minor"],
+            "net": fmt(income_agg["total_minor"] - agg["total_minor"]),
             "top3": [
                 {"id": r["id"], "amount_minor": r["amount_minor"], "amount": fmt(r["amount_minor"]),
                  "category_id": r["category_id"], "note": r["note"], "spent_on": r["spent_on"]}

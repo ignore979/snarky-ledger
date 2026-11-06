@@ -135,7 +135,8 @@ def build_app(settings: Settings | None = None, clock: Clock | None = None):
             "expenses": [
                 {"id": r["id"], "amount": Money.from_minor(r["amount_minor"]).to_yuan_str(),
                  "category_id": r["category_id"], "note": r["note"],
-                 "spent_on": r["spent_on"], "version": r["version"], "deleted_at": r["deleted_at"]}
+                 "spent_on": r["spent_on"], "version": r["version"], "deleted_at": r["deleted_at"],
+                 "kind": r["kind"]}
                 for r in items
             ],
         }
@@ -157,12 +158,15 @@ def build_app(settings: Settings | None = None, clock: Clock | None = None):
         expenses = [{
             "id": r["id"], "amount": round(r["amount_minor"] / 100, 2),
             "category": Category.parse(r["category_id"]).name, "category_id": r["category_id"],
-            "note": r["note"], "date": r["spent_on"], "version": r["version"],
+            "note": r["note"], "date": r["spent_on"], "version": r["version"], "kind": r["kind"],
         } for r in items]
         return {
             "mode": tools.get_mode(),
             "stats": {
                 "month": month.iso, "total": round(facts["total_minor"] / 100, 2), "count": facts["count"],
+                "income_total": round(facts["income_total_minor"] / 100, 2),
+                "income_count": facts["income_count"],
+                "net": round(facts["net_minor"] / 100, 2),
                 "by_category": by_name, "mom_change_pct": facts["mom_full"]["change_pct"],
                 "avg_daily": round(facts["avg_daily"]["amount_minor"] / 100, 2),
                 "top_category": Category.parse(facts["top_category"]["category_id"]).name if facts["top_category"] else None,
@@ -228,7 +232,9 @@ def build_app(settings: Settings | None = None, clock: Clock | None = None):
         amount = Money.parse(body.get("amount"))
         category = Category.parse(body.get("category"))
         spent_on = BusinessDate(body["spent_on"]) if body.get("spent_on") else BusinessDate.today(clock)
-        rec = ledger.add(amount=amount, category=category, spent_on=spent_on, note=body.get("note", ""), source="manual")
+        kind = body.get("kind", "expense")
+        rec = ledger.add(amount=amount, category=category, spent_on=spent_on,
+                         note=body.get("note", ""), source="manual", kind=kind)
         return jsonify({"data": rec}), 201
 
     @v2.get("/expenses")

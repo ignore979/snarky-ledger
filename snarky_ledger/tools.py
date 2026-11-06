@@ -49,6 +49,20 @@ class ToolRegistry:
             "month_category_total_minor": facts["by_category"].get(c.id, {}).get("amount_minor", 0),
         })
 
+    def add_income(self, amount, category, note="", date=None):
+        m = Money.parse(amount)
+        c = Category.parse(category)
+        if c.kind != "income":
+            raise InvalidArgument(f"分类「{c.name}」不是收入分类")
+        d = BusinessDate(date) if date else BusinessDate.today(self.clock)
+        rec = self.ledger.add(amount=m, category=c, spent_on=d, note=note, source="agent", kind="income")
+        facts = self.analysis.monthly_facts(d.month)
+        return _ok({
+            "income": rec,
+            "month_income_total_minor": facts["income_total_minor"],
+            "month_income_total": facts["income_total"],
+        })
+
     def query_expenses(self, start=None, end=None, category=None):
         cat = Category.parse(category) if category else None
         s = BusinessDate(start).iso if start else None
@@ -120,13 +134,23 @@ class ToolRegistry:
 
     # --- function calling schema ---
     def schemas(self):
-        cat_names = [c.name for c in Category.all()]
+        exp_names = [c.name for c in Category.all("expense")]
+        inc_names = [c.name for c in Category.all("income")]
         return [
             {"type": "function", "function": {
                 "name": "add_expense", "description": "记一笔支出，返回本月/该分类累计金额供吐槽。",
                 "parameters": {"type": "object", "properties": {
                     "amount": {"type": "string", "description": "金额（元），十进制字符串，如 \"50\""},
-                    "category": {"type": "string", "enum": cat_names, "description": "分类"},
+                    "category": {"type": "string", "enum": exp_names, "description": "分类"},
+                    "note": {"type": "string", "description": "备注"},
+                    "date": {"type": "string", "description": "日期 YYYY-MM-DD，缺省今天"},
+                }, "required": ["amount", "category"]},
+            }},
+            {"type": "function", "function": {
+                "name": "add_income", "description": "记一笔收入（工资/兼职/理财等），返回本月收入累计。",
+                "parameters": {"type": "object", "properties": {
+                    "amount": {"type": "string", "description": "金额（元），十进制字符串，如 \"5000\""},
+                    "category": {"type": "string", "enum": inc_names, "description": "收入分类"},
                     "note": {"type": "string", "description": "备注"},
                     "date": {"type": "string", "description": "日期 YYYY-MM-DD，缺省今天"},
                 }, "required": ["amount", "category"]},
@@ -136,7 +160,7 @@ class ToolRegistry:
                 "parameters": {"type": "object", "properties": {
                     "start": {"type": "string", "description": "起始日期 YYYY-MM-DD，可空"},
                     "end": {"type": "string", "description": "结束日期 YYYY-MM-DD（含），可空"},
-                    "category": {"type": "string", "enum": cat_names, "description": "分类，可空"},
+                    "category": {"type": "string", "enum": exp_names, "description": "分类，可空"},
                 }},
             }},
             {"type": "function", "function": {

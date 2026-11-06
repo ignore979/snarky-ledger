@@ -30,7 +30,8 @@ class CategoryTest(unittest.TestCase):
             Category.parse(None)
 
     def test_all_count(self):
-        self.assertEqual(len(Category.all()), 8)
+        self.assertEqual(len(Category.all("expense")), 8)
+        self.assertEqual(len(Category.all("income")), 5)
 
 
 if __name__ == "__main__":
