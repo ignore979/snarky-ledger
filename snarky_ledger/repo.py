@@ -234,3 +234,97 @@ class LedgerRepository:
             "UPDATE command_requests SET status=?, response_json=? WHERE id=?",
             (status, response_json, command_id),
         )
+
+    # --- 会话与消息 ---
+    def create_session(self, conn, *, session_id, title="") -> dict:
+        now = self.now()
+        conn.execute(
+            "INSERT INTO sessions(id, ledger_id, title, summary, summary_until_seq, created_at, updated_at)"
+            " VALUES(?,?,?,NULL,0,?,?)",
+            (session_id, DEFAULT_LEDGER_ID, title, now, now),
+        )
+        return _row_dict(conn.execute("SELECT * FROM sessions WHERE id=?", (session_id,)).fetchone())
+
+    def get_session(self, conn, session_id) -> dict | None:
+        return _row_dict(conn.execute(
+            "SELECT * FROM sessions WHERE id=? AND ledger_id=?", (session_id, DEFAULT_LEDGER_ID)).fetchone())
+
+    def list_sessions(self, conn, limit=50) -> list:
+        return [_row_dict(r) for r in conn.execute(
+            "SELECT * FROM sessions WHERE ledger_id=? ORDER BY updated_at DESC LIMIT ?",
+            (DEFAULT_LEDGER_ID, limit))]
+
+    def next_seq(self, conn, session_id) -> int:
+        r = conn.execute("SELECT COALESCE(MAX(seq),0) AS m FROM messages WHERE session_id=?", (session_id,)).fetchone()
+        return r["m"] + 1
+
+    def add_message(self, conn, *, message_id, session_id, seq, role, content_json, request_id=None) -> dict:
+        conn.execute(
+            "INSERT INTO messages(id, session_id, seq, role, content_json, request_id, created_at) VALUES(?,?,?,?,?,?,?)",
+            (message_id, session_id, seq, role, content_json, request_id, self.now()),
+        )
+        conn.execute("UPDATE sessions SET updated_at=? WHERE id=?", (self.now(), session_id))
+        return _row_dict(conn.execute("SELECT * FROM messages WHERE id=?", (message_id,)).fetchone())
+
+    def list_messages(self, conn, session_id, limit=100) -> list:
+        return [_row_dict(r) for r in conn.execute(
+            "SELECT * FROM messages WHERE session_id=? ORDER BY seq ASC LIMIT ?", (session_id, limit))]
+
+    def update_summary(self, conn, session_id, summary, summary_until_seq) -> None:
+        conn.execute("UPDATE sessions SET summary=?, summary_until_seq=?, updated_at=? WHERE id=?",
+                     (summary, summary_until_seq, self.now(), session_id))
+
+    # --- 记忆 ---
+    def add_memory(self, conn, *, memory_id, kind, value_json, source_message_id=None, expires_at=None) -> dict:
+        conn.execute(
+            "INSERT INTO memories(id, ledger_id, kind, value_json, source_message_id, consent_at, expires_at, deleted_at)"
+            " VALUES(?,?,?,?,?,?,?,NULL)",
+            (memory_id, DEFAULT_LEDGER_ID, kind, value_json, source_message_id, self.now(), expires_at),
+        )
+        return _row_dict(conn.execute("SELECT * FROM memories WHERE id=?", (memory_id,)).fetchone())
+
+    def list_memories(self, conn, *, include_deleted=False) -> list:
+        where = "ledger_id=?" if include_deleted else "ledger_id=? AND deleted_at IS NULL"
+        return [_row_dict(r) for r in conn.execute(
+            f"SELECT * FROM memories WHERE {where} ORDER BY consent_at DESC", (DEFAULT_LEDGER_ID,))]
+
+    def soft_delete_memory(self, conn, memory_id) -> bool:
+        cur = conn.execute("UPDATE memories SET deleted_at=? WHERE id=? AND ledger_id=?",
+                           (self.now(), memory_id, DEFAULT_LEDGER_ID))
+        return cur.rowcount > 0
+
+    # --- 待确认动作 ---
+    def create_pending_action(self, conn, *, action_id, action_type, payload_json, payload_hash, expires_at) -> dict:
+        conn.execute(
+            "INSERT INTO pending_actions(id, ledger_id, action_type, payload_json, payload_hash, status, created_at, expires_at, consumed_at)"
+            " VALUES(?,?,?,?,?,?,?,?,NULL)",
+            (action_id, DEFAULT_LEDGER_ID, action_type, payload_json, payload_hash, "pending", self.now(), expires_at),
+        )
+        return _row_dict(conn.execute("SELECT * FROM pending_actions WHERE id=?", (action_id,)).fetchone())
+
+    def get_pending_action(self, conn, action_id) -> dict | None:
+        return _row_dict(conn.execute(
+            "SELECT * FROM pending_actions WHERE id=? AND ledger_id=?", (action_id, DEFAULT_LEDGER_ID)).fetchone())
+
+    def consume_pending_action(self, conn, action_id) -> dict | None:
+        cur = conn.execute(
+            "UPDATE pending_actions SET status='consumed', consumed_at=? WHERE id=? AND ledger_id=? AND status='pending'",
+            (self.now(), action_id, DEFAULT_LEDGER_ID),
+        )
+        if cur.rowcount == 0:
+            return None
+        return _row_dict(conn.execute("SELECT * FROM pending_actions WHERE id=?", (action_id,)).fetchone())
+
+    # --- 报告缓存 ---
+    def get_report_cache(self, conn, period) -> dict | None:
+        return _row_dict(conn.execute(
+            "SELECT * FROM report_cache WHERE ledger_id=? AND period=?", (DEFAULT_LEDGER_ID, period)).fetchone())
+
+    def set_report_cache(self, conn, *, period, metric_version, ledger_revision, facts_json) -> None:
+        conn.execute(
+            "INSERT INTO report_cache(ledger_id, period, metric_version, ledger_revision, facts_json, created_at)"
+            " VALUES(?,?,?,?,?,?)"
+            " ON CONFLICT(ledger_id, period) DO UPDATE SET metric_version=excluded.metric_version,"
+            " ledger_revision=excluded.ledger_revision, facts_json=excluded.facts_json, created_at=excluded.created_at",
+            (DEFAULT_LEDGER_ID, period, metric_version, ledger_revision, facts_json, self.now()),
+        )

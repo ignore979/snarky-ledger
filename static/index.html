@@ -46,6 +46,16 @@
     padding: 6px 12px; border-radius: 8px; cursor: pointer; font-size: 13px;
   }
   .ghost-btn:hover { color: var(--accent-2); border-color: var(--accent-2); }
+  .month-picker {
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 8px; padding: 6px 10px; font-size: 13px; outline: none; cursor: pointer;
+  }
+  button.mode-chip { cursor: pointer; font-family: inherit; }
+  .row-del {
+    background: transparent; border: none; color: var(--muted); cursor: pointer;
+    font-size: 13px; padding: 2px 6px; border-radius: 6px;
+  }
+  .row-del:hover { color: var(--accent-2); background: rgba(255,107,107,.12); }
 
   main {
     display: grid; grid-template-columns: 400px 1fr; gap: 18px;
@@ -144,7 +154,8 @@
   <div class="mascot head-mascot" id="head-mascot"></div>
   <h1>损友账本</h1>
   <span class="sub">Snarky Ledger · 会毒舌吐槽的记账 Agent</span>
-  <div class="mode-chip" id="mode-chip">毒舌模式</div>
+  <select id="month-picker" class="month-picker" title="切换查看月份"></select>
+  <button class="mode-chip" id="mode-chip" title="点击切换语气">毒舌模式</button>
   <button class="ghost-btn" id="reset-btn">清空账本</button>
 </header>
 
@@ -189,7 +200,7 @@
       <div class="card-title">最近账目</div>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>日期</th><th>分类</th><th>备注</th><th class="amt">金额</th></tr></thead>
+          <thead><tr><th>日期</th><th>分类</th><th>备注</th><th class="amt">金额</th><th></th></tr></thead>
           <tbody id="expense-body"></tbody>
         </table>
       </div>
@@ -206,6 +217,7 @@ const CAT_COLORS = {
 
 let barChart, pieChart;
 let currentMode = "savage";
+let selectedMonth = "";
 
 const MASCOT_SVG = `<svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
   <rect x="38" y="86" width="44" height="30" rx="14" fill="#2a2a3a"/>
@@ -345,7 +357,7 @@ function renderExpenses(items) {
   const body = document.getElementById("expense-body");
   body.innerHTML = "";
   if (!items || !items.length) {
-    body.innerHTML = '<tr><td colspan="4" class="empty-hint">还没有账目。</td></tr>';
+    body.innerHTML = '<tr><td colspan="5" class="empty-hint">还没有账目。</td></tr>';
     return;
   }
   items.forEach(r => {
@@ -354,7 +366,8 @@ function renderExpenses(items) {
       '<td>' + esc(r.date) + '</td>' +
       '<td><span class="cat-tag" style="color:' + (CAT_COLORS[r.category] || "#8d99ae") + '">' + esc(r.category) + '</span></td>' +
       '<td>' + esc(r.note) + '</td>' +
-      '<td class="amt">¥' + r.amount.toFixed(2) + '</td>';
+      '<td class="amt">¥' + r.amount.toFixed(2) + '</td>' +
+      '<td class="amt"><button class="row-del" data-id="' + r.id + '" data-version="' + r.version + '" title="删除（软删，可恢复）">✕</button></td>';
     body.appendChild(tr);
   });
 }
@@ -386,7 +399,10 @@ function hideTyping() {
 async function refreshData() {
   if (document.hidden) return;
   try {
-    const res = await fetch("/api/state", { method: "POST" });
+    const body = selectedMonth ? JSON.stringify({ month: selectedMonth }) : "{}";
+    const res = await fetch("/api/state", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body,
+    });
     render(await res.json());
   } catch (e) { /* 静默失败，下次轮询再试 */ }
 }
@@ -407,7 +423,7 @@ async function sendMessage(text) {
       appendMsg("bot", "（出错了：" + (data.error || res.status) + "）");
     } else {
       appendMsg("bot", data.reply);
-      render(data);
+      refreshData();
     }
   } catch (e) {
     hideTyping();
@@ -422,6 +438,20 @@ function initCatSelect() {
     o.value = c; o.textContent = c;
     sel.appendChild(o);
   });
+}
+
+function initMonthPicker() {
+  const sel = document.getElementById("month-picker");
+  const now = new Date();
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const v = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+    const o = document.createElement("option");
+    o.value = v;
+    o.textContent = d.getFullYear() + "年" + (d.getMonth() + 1) + "月" + (i === 0 ? "（本月）" : "");
+    sel.appendChild(o);
+  }
+  sel.addEventListener("change", () => { selectedMonth = sel.value; refreshData(); });
 }
 
 document.getElementById("chat-form").addEventListener("submit", e => {
@@ -447,18 +477,52 @@ document.getElementById("budget-form").addEventListener("submit", async e => {
 });
 
 document.getElementById("reset-btn").addEventListener("click", async () => {
-  if (!confirm("确定清空整个账本？")) return;
-  await fetch("/api/reset", { method: "POST" });
-  document.getElementById("chat-log").innerHTML = "";
-  appendMsg("bot", "账本清空了。希望这次你是认真的。");
-  refreshData();
+  try {
+    const p = await (await fetch("/api/v2/maintenance/reset-preview", { method: "POST" })).json();
+    const n = p.data.preview.expense_count;
+    if (!confirm("确定清空整个账本？当前 " + n + " 笔账，清空后不可恢复。")) return;
+    const r = await fetch("/api/v2/maintenance/reset-confirm", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action_id: p.data.action_id }),
+    });
+    if (r.ok) {
+      document.getElementById("chat-log").innerHTML = "";
+      appendMsg("bot", "账本清空了。希望这次你是认真的。");
+      refreshData();
+    }
+  } catch (e) { appendMsg("bot", "（清空失败：" + e.message + "）"); }
 });
 
 initCatSelect();
+initMonthPicker();
 document.getElementById("head-mascot").innerHTML = MASCOT_SVG;
 appendMsg("bot", "我是账哥，你的毒舌记账损友。报一笔账试试？");
 refreshData();
 setInterval(refreshData, 4000);
+
+document.getElementById("mode-chip").addEventListener("click", async () => {
+  const next = currentMode === "gentle" ? "savage" : "gentle";
+  const res = await fetch("/api/v2/preferences", {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mode: next }),
+  });
+  if (res.ok) {
+    renderMode(next);
+    appendMsg("bot", next === "gentle" ? "已切温柔模式。" : "已切回毒舌模式。");
+  }
+});
+
+document.getElementById("expense-body").addEventListener("click", async e => {
+  const btn = e.target.closest(".row-del");
+  if (!btn) return;
+  const id = btn.dataset.id, version = btn.dataset.version;
+  if (!confirm("删除这笔账？删除后可从历史恢复（软删）。")) return;
+  const res = await fetch("/api/v2/expenses/" + id, {
+    method: "DELETE", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ version: parseInt(version, 10) }),
+  });
+  if (res.ok) refreshData();
+});
 </script>
 </body>
 </html>

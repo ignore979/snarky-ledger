@@ -94,6 +94,63 @@ MIGRATIONS = [
             "CREATE INDEX idx_budgets_period ON budgets(ledger_id, period)",
         ],
     ),
+    (
+        "0002_sessions_memories_actions",
+        [
+            "CREATE TABLE sessions ("
+            " id TEXT PRIMARY KEY,"
+            " ledger_id TEXT NOT NULL,"
+            " title TEXT NOT NULL DEFAULT '',"
+            " summary TEXT,"
+            " summary_until_seq INTEGER NOT NULL DEFAULT 0,"
+            " created_at TEXT NOT NULL,"
+            " updated_at TEXT NOT NULL"
+            ")",
+            "CREATE TABLE messages ("
+            " id TEXT PRIMARY KEY,"
+            " session_id TEXT NOT NULL,"
+            " seq INTEGER NOT NULL,"
+            " role TEXT NOT NULL,"
+            " content_json TEXT NOT NULL,"
+            " request_id TEXT,"
+            " created_at TEXT NOT NULL,"
+            " UNIQUE(session_id, seq)"
+            ")",
+            "CREATE TABLE memories ("
+            " id TEXT PRIMARY KEY,"
+            " ledger_id TEXT NOT NULL,"
+            " kind TEXT NOT NULL,"
+            " value_json TEXT NOT NULL,"
+            " source_message_id TEXT,"
+            " consent_at TEXT NOT NULL,"
+            " expires_at TEXT,"
+            " deleted_at TEXT"
+            ")",
+            "CREATE TABLE pending_actions ("
+            " id TEXT PRIMARY KEY,"
+            " ledger_id TEXT NOT NULL,"
+            " action_type TEXT NOT NULL,"
+            " payload_json TEXT NOT NULL,"
+            " payload_hash TEXT NOT NULL,"
+            " status TEXT NOT NULL DEFAULT 'pending',"
+            " created_at TEXT NOT NULL,"
+            " expires_at TEXT NOT NULL,"
+            " consumed_at TEXT"
+            ")",
+            "CREATE TABLE report_cache ("
+            " ledger_id TEXT NOT NULL,"
+            " period TEXT NOT NULL,"
+            " metric_version TEXT NOT NULL,"
+            " ledger_revision INTEGER NOT NULL,"
+            " facts_json TEXT NOT NULL,"
+            " created_at TEXT NOT NULL,"
+            " PRIMARY KEY(ledger_id, period)"
+            ")",
+            "CREATE INDEX idx_messages_session ON messages(session_id, seq)",
+            "CREATE INDEX idx_pending_actions_status ON pending_actions(status, expires_at)",
+            "CREATE INDEX idx_memories_ledger ON memories(ledger_id, deleted_at)",
+        ],
+    ),
 ]
 
 
