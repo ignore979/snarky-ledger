@@ -11,11 +11,9 @@
 
 ## 为什么它是 Agent
 
-和「地牢主」是同一套引擎，只是换了一批工具：
-
-- **记忆** = SQLite 里的账目 + 预算（`ledger.py`）
+- **记忆** = SQLite 里的账目 + 预算 + 会话 + 偏好记忆（`db.py` / `repo.py`）
 - **工具** = 记账 / 查账 / 统计 / 预算 / 报告等 8 个函数 + JSON Schema（`tools.py`）
-- **循环** = LLM 决定要不要调工具 → 执行 → 把结果喂回 → 直到给出最终回复（`agent.py` 的 ReAct 循环）
+- **循环** = LLM 决定要不要调工具 → 严格校验执行 → 把结果喂回 → 直到给出最终回复（`agent.py` 的 ReAct 循环）
 
 **同一个循环，把 `move`/`attack` 换成 `add_expense`/`query_expenses`，游戏就变成了记账管家。** 这是「工具可替换性」的活证明。
 
@@ -28,26 +26,39 @@ python main.py                # 终端版
 python main.py --web          # 网页版（图表 + 对话），默认 http://127.0.0.1:5000
 ```
 
-> 需要 DeepSeek API Key，到 [platform.deepseek.com](https://platform.deepseek.com) 申请后填入 `.env`。
+> 需要 DeepSeek API Key，到 [platform.deepseek.com](https://platform.deepseek.com) 申请后填入 `.env`（`.env` 已 gitignore，不会进仓库）。
+
+## V2 特性：正确性 & 安全
+
+| 特性 | 说明 |
+| --- | --- |
+| 金额整数分 | 内部以「分」为唯一计算单位，API 传十进制字符串；拒绝浮点/布尔/负/超两位小数/越界 |
+| 软删 + 乐观锁 | 删除是软删（可恢复），编辑/删除用 `version` 乐观锁防覆盖 |
+| 按月预算 | 预算按「月份 + 分类」唯一，跨月不覆盖；支持总预算 |
+| 全月统计 | 最大三笔按全月取、不受分页影响；完整月环比与日均口径明确 |
+| 版本迁移 | `schema_migrations` + checksum；旧库 → V2 迁移逐行金额转分并对账 |
+| 安全执行 | 两步清空（预览 + 确认）；本机认证（同源 + 可选令牌）；未知分类/模式拒绝不放宽 |
+| 会话与记忆 | 会话持久化；长期记忆白名单（分类别名/直记偏好等），不记病史/工资 |
+| CSV 导入导出 | 候选核对后入账；导出做公式注入防护 |
 
 ## 功能与 8 个工具
 
 | 工具 | 参数 | 做什么 |
 | --- | --- | --- |
-| `add_expense` | amount, category, note?, date? | 记一笔支出（返回该分类本月累计金额/次数，供吐槽） |
+| `add_expense` | amount, category, note?, date? | 记一笔支出（返回该分类本月累计，供吐槽） |
 | `query_expenses` | start?, end?, category? | 查账：总额 + 分类占比 + 明细 |
-| `monthly_stats` | month? | 月度统计 + 环比 + 日均 + 最大单笔 |
-| `set_budget` | category, amount | 设某分类的月预算 |
+| `monthly_stats` | month? | 月度统计 + 完整月环比 + 日均 + 最大三笔 |
+| `set_budget` | category, amount | 设某分类（或 total 总预算）的月预算 |
 | `budget_status` | — | 预算剩余 / 超支百分比 |
-| `persona_report` | month? | 花钱人格报告数据（统计 + 本月最大三笔） |
+| `persona_report` | month? | 花钱人格报告数据（统计 + 最大三笔） |
 | `set_mode` | mode('savage'/'gentle') | 切换毒舌 / 温柔模式 |
-| `delete_expense` | id | 删一笔账（纠错） |
+| `delete_expense` | id | 软删一笔账（可恢复） |
 
 分类可省略让 agent 自己推断；推断不出才追问——这是「主动补全 + 必要时澄清」的 agent 行为展示点。
 
 ## 人设：账哥
 
-一个嘴贱但真心关心你钱的损友，而不是冷冰冰的财务软件。语气规则（详见 `persona.py`）：
+一个嘴贱但真心关心你钱的损友，而不是冷冰冰的财务软件。语气规则（详见 `snarky_ledger/persona.py`）：
 
 1. **具体到数字**：吐槽必须引用真实金额、次数、占比。
 2. **损事不损人**：损这笔消费和它的后果，绝不攻击用户的人格、能力、家庭、收入。
@@ -61,30 +72,39 @@ python main.py --web          # 网页版（图表 + 对话），默认 http://1
 
 ```
 snarky-ledger/
-├── ledger.py          # SQLite 数据层：建表、增删查、统计、预算、模式
-├── persona.py         # 人设：系统提示词 + 语气规则 + 报告模板
-├── tools.py           # 8 个工具 + JSON Schema + 分发执行
-├── agent.py           # ReAct 循环
-├── main.py            # 终端 REPL（--web 启动网页版）
-├── web.py             # Flask 后端（/api/state /api/act /api/budget /api/reset）
-├── static/index.html  # 前端：对话 + 账目表 + 柱状图 + 饼图 + 预算面板
-├── test_offline.py    # 离线测试（无需 API key）
+├── snarky_ledger/          # V2 主包
+│   ├── domain/             # Money（整数分）/ 日期 / 分类 / 模式，严格校验
+│   ├── db.py               # SQLite 连接 + schema 版本迁移
+│   ├── migrate.py          # 旧库 → V2 迁移 + 对账
+│   ├── repo.py             # 参数化 SQL 仓储
+│   ├── services.py         # 账目 / 预算 / 分析
+│   ├── advanced.py         # 会话 / 记忆 / 确认 / 报告缓存 / CSV
+│   ├── tools.py            # 8 工具 + JSON Schema
+│   ├── agent.py            # ReAct 编排器
+│   └── api.py              # Flask API（V2 + 旧接口兼容）
+├── main.py                 # 入口：REPL / --web
+├── static/index.html       # 前端：对话 + 图表 + 预算 + 月份切换 + 删除
+├── tests/                  # 90 个单元测试
+├── docs/v2/                # 架构 / API / 迁移 / 运维 / 隐私 / 发布清单
 ├── requirements.txt
 └── .env.example
 ```
 
 ## 测试
 
-无需 API key 的离线测试，覆盖数据层、工具分发与 ReAct 循环（用假 client 注入）：
+```bash
+python -m unittest discover -s tests -t .   # 90 个用例：金额/日期/服务/迁移/工具/Agent/API/会话/记忆/CSV
+python test_offline.py                      # 旧入口兼容测试（4 用例）
+```
+
+## 迁移与运维
 
 ```bash
-python test_offline.py
+python -m snarky_ledger migrate --old <旧库> --new <新库>   # 旧库迁移（只读旧库、逐行转分、对账）
+python -m snarky_ledger doctor --db <数据库>                # integrity_check / schema_version
 ```
 
 ## 演示
-
-> [!NOTE]
-> 演示截图 / GIF 待补充：拿到 `DEEPSEEK_API_KEY` 后跑一遍下面的脚本即可录屏。
 
 ```
 你 > 今天花 50 吃火锅
