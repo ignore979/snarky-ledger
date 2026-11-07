@@ -414,7 +414,6 @@ function hideTyping() {
 }
 
 async function refreshData() {
-  if (document.hidden) return;
   try {
     const body = selectedMonth ? JSON.stringify({ month: selectedMonth }) : "{}";
     const res = await fetch("/api/state", {
@@ -515,7 +514,7 @@ initMonthPicker();
 document.getElementById("head-mascot").innerHTML = MASCOT_SVG;
 appendMsg("bot", "我是账哥，你的毒舌记账损友。报一笔账试试？");
 refreshData();
-setInterval(refreshData, 4000);
+setInterval(() => { if (!document.hidden) refreshData(); }, 4000);
 
 document.getElementById("mode-chip").addEventListener("click", async () => {
   const next = currentMode === "gentle" ? "savage" : "gentle";
